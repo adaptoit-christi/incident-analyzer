@@ -8,13 +8,14 @@
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #0a0e27;
+  background: #F8F9FA;
+  color: #4E5D6C;
   min-height: 100vh;
   position: relative;
   overflow-x: hidden;
 }
 
-/* Cyber Grid Background */
+/* Subtle Grid Background */
 body::before {
   content: '';
   position: fixed;
@@ -23,8 +24,8 @@ body::before {
   right: 0;
   bottom: 0;
   background-image: 
-    linear-gradient(rgba(59, 130, 246, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(59, 130, 246, 0.03) 1px, transparent 1px);
+    linear-gradient(rgba(28, 61, 111, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(28, 61, 111, 0.03) 1px, transparent 1px);
   background-size: 50px 50px;
   pointer-events: none;
   z-index: 0;
@@ -64,17 +65,17 @@ body::before {
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(31, 41, 55, 0.5);
+  background: rgba(212, 217, 222, 0.5);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(59, 130, 246, 0.5);
+  background: rgba(28, 61, 111, 0.5);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(59, 130, 246, 0.7);
+  background: rgba(28, 61, 111, 0.7);
 }
 
 /* Utility Classes for Priority and Severity Badges */
@@ -106,8 +107,8 @@ input:focus,
 textarea:focus,
 select:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: #1C3D6F;
+  box-shadow: 0 0 0 3px rgba(28, 61, 111, 0.1);
 }
 
 /* Button Hover Effects */
@@ -117,7 +118,7 @@ button {
 
 button:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 8px 16px rgba(59, 130, 246, 0.2);
+  box-shadow: 0 8px 16px rgba(28, 61, 111, 0.2);
 }
 
 button:active:not(:disabled) {

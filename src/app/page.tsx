@@ -1,8 +1,11 @@
 // FILE: src/app/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Image from 'next/image';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
+import mammoth from 'mammoth';
 
 type Action = {
   title: string;
@@ -44,6 +47,46 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [error, setError] = useState('');
+  const analysisRef = useRef<HTMLDivElement>(null);
+
+  // Function to extract text from DOCX files
+  const extractTextFromDocx = async (file: File): Promise<string> => {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.extractRawText({ arrayBuffer });
+      return result.value;
+    } catch (error) {
+      console.error('Error extracting text from DOCX:', error);
+      return `[Error reading ${file.name}: Could not extract text from DOCX file]`;
+    }
+  };
+
+  // Function to extract text from PDF files
+  const extractTextFromPdf = async (file: File): Promise<string> => {
+    try {
+      // Dynamic import to avoid SSR issues
+      const pdfjsLib = await import('pdfjs-dist');
+      
+      // Set up worker
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
+      
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let fullText = '';
+      
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map((item) => ('str' in item ? item.str : '')).join(' ');
+        fullText += pageText + '\n\n';
+      }
+      
+      return fullText.trim();
+    } catch (error) {
+      console.error('Error extracting text from PDF:', error);
+      return `[Error reading ${file.name}: Could not extract text from PDF file]`;
+    }
+  };
 
   const handleAnalyze = async () => {
     if (!ticket.trim()) {
@@ -57,17 +100,34 @@ export default function Home() {
 
     try {
       const attachments = await Promise.all(
-        files
-          .filter(f => f.type.startsWith('text/') || 
-                       f.name.endsWith('.log') || 
-                       f.name.endsWith('.txt') || 
-                       f.name.endsWith('.csv'))
-          .map(async (file) => ({
+        files.map(async (file) => {
+          let text = '';
+          let mime = file.type || 'application/octet-stream';
+          
+          if (file.name.endsWith('.docx')) {
+            text = await extractTextFromDocx(file);
+            mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+          } else if (file.name.endsWith('.pdf')) {
+            text = await extractTextFromPdf(file);
+            mime = 'application/pdf';
+          } else if (file.type.startsWith('text/') || 
+                     file.name.endsWith('.log') || 
+                     file.name.endsWith('.txt') || 
+                     file.name.endsWith('.csv')) {
+            text = await file.text();
+            mime = file.type || 'text/plain';
+          } else {
+            // Skip unsupported file types
+            return null;
+          }
+          
+          return {
             name: file.name,
-            mime: file.type || 'text/plain',
-            text: await file.text()
-          }))
-      );
+            mime: mime,
+            text: text
+          };
+        })
+      ).then(attachments => attachments.filter(Boolean) as Array<{name: string, mime: string, text: string}>);
 
       const response = await fetch('/api/analyze', {
         method: 'POST',
@@ -112,6 +172,53 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
+  const downloadPDF = async () => {
+    if (!analysis || !analysisRef.current) return;
+
+    try {
+      // Create a clone of the analysis section for PDF generation
+      const element = analysisRef.current;
+      const canvas = await html2canvas(element, {
+        scale: 2, // Higher resolution
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#F8F9FA',
+        scrollX: 0,
+        scrollY: 0,
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      
+      // Calculate dimensions to fit the page
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 295; // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      
+      let position = 0;
+
+      // Add first page
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      // Add additional pages if needed
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-');
+      pdf.save(`incident-analysis-${timestamp}.pdf`);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Error generating PDF. Please try again.');
+    }
+  };
+
   const getSeverityColor = (severity: string) => {
     switch(severity) {
       case 'Critical': return 'bg-red-500/20 text-red-400 border-red-500/30';
@@ -136,25 +243,26 @@ export default function Home() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0e27', color: 'white', position: 'relative' }}>
+    <div style={{ minHeight: '100vh', background: '#F8F9FA', color: '#4E5D6C', position: 'relative' }}>
       {/* Header */}
       <header style={{ 
-        background: 'rgba(17, 24, 48, 0.8)', 
+        background: 'rgba(248, 249, 250, 0.95)', 
         backdropFilter: 'blur(10px)', 
-        borderBottom: '1px solid rgba(59, 130, 246, 0.3)' 
+        borderBottom: '1px solid rgba(28, 61, 111, 0.2)',
+        boxShadow: '0 2px 4px rgba(28, 61, 111, 0.1)' 
       }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '1rem 2rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
               <Image src="/adaptoit-logo.png" alt="AdapToIT" width={40} height={40} style={{ width: '40px', height: '40px' }} />
               <div>
-                <h1 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#3b82f6', margin: 0 }}>AdapToIT</h1>
-                <p style={{ fontSize: '0.875rem', color: '#9ca3af', margin: 0 }}>Incident Analysis Platform</p>
+                <h1 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1C3D6F', margin: 0 }}>AdapToIT</h1>
+                <p style={{ fontSize: '0.875rem', color: '#4E5D6C', margin: 0 }}>Incident Analysis Platform</p>
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <div style={{ width: '8px', height: '8px', background: '#10b981', borderRadius: '50%', animation: 'pulse 2s infinite' }}></div>
-              <span style={{ fontSize: '0.875rem', color: '#9ca3af' }}>System Online</span>
+              <div style={{ width: '8px', height: '8px', background: '#3FB6A8', borderRadius: '50%', animation: 'pulse 2s infinite' }}></div>
+              <span style={{ fontSize: '0.875rem', color: '#4E5D6C' }}>System Online</span>
             </div>
           </div>
         </div>
@@ -167,31 +275,31 @@ export default function Home() {
           <h2 style={{ 
             fontSize: '2.5rem', 
             fontWeight: '700', 
-            background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)', 
+            background: 'linear-gradient(135deg, #1C3D6F 0%, #3FB6A8 100%)', 
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
             marginBottom: '1rem' 
           }}>
             Advanced Incident Analysis
           </h2>
-          <p style={{ fontSize: '1.125rem', color: '#d1d5db', maxWidth: '600px', margin: '0 auto' }}>
+          <p style={{ fontSize: '1.125rem', color: '#4E5D6C', maxWidth: '600px', margin: '0 auto' }}>
             AI-powered security incident analysis with comprehensive NIST framework mapping and actionable insights
           </p>
         </div>
 
         {/* Analysis Form */}
         <div style={{ 
-          background: 'rgba(17, 24, 48, 0.5)', 
+          background: 'rgba(255, 255, 255, 0.8)', 
           backdropFilter: 'blur(10px)', 
           borderRadius: '16px', 
-          border: '1px solid rgba(59, 130, 246, 0.3)',
+          border: '1px solid rgba(28, 61, 111, 0.2)',
           padding: '2rem',
-          boxShadow: '0 0 40px rgba(59, 130, 246, 0.1)',
+          boxShadow: '0 4px 24px rgba(28, 61, 111, 0.1)',
           marginBottom: '2rem'
         }}>
           {/* Incident Description */}
           <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{ display: 'block', fontSize: '1.125rem', fontWeight: '600', color: '#60a5fa', marginBottom: '0.75rem' }}>
+            <label style={{ display: 'block', fontSize: '1.125rem', fontWeight: '600', color: '#1C3D6F', marginBottom: '0.75rem' }}>
               📝 Incident Description
             </label>
             <textarea
@@ -202,48 +310,48 @@ export default function Home() {
                 width: '100%',
                 minHeight: '150px',
                 padding: '1rem',
-                background: 'rgba(31, 41, 55, 0.5)',
-                border: '1px solid rgba(75, 85, 99, 0.5)',
+                background: 'rgba(255, 255, 255, 0.9)',
+                border: '1px solid rgba(212, 217, 222, 0.8)',
                 borderRadius: '8px',
-                color: 'white',
+                color: '#4E5D6C',
                 fontSize: '0.95rem',
                 resize: 'vertical',
                 outline: 'none',
                 transition: 'all 0.3s'
               }}
-              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-              onBlur={(e) => e.target.style.borderColor = 'rgba(75, 85, 99, 0.5)'}
+              onFocus={(e) => e.target.style.borderColor = '#1C3D6F'}
+              onBlur={(e) => e.target.style.borderColor = 'rgba(212, 217, 222, 0.8)'}
             />
           </div>
 
           {/* File Upload */}
           <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{ display: 'block', fontSize: '1.125rem', fontWeight: '600', color: '#60a5fa', marginBottom: '0.75rem' }}>
+            <label style={{ display: 'block', fontSize: '1.125rem', fontWeight: '600', color: '#1C3D6F', marginBottom: '0.75rem' }}>
               📁 Supporting Files
             </label>
             <div style={{
-              border: '2px dashed rgba(75, 85, 99, 0.5)',
+              border: '2px dashed rgba(212, 217, 222, 0.8)',
               borderRadius: '8px',
               padding: '2rem',
               textAlign: 'center',
-              background: 'rgba(31, 41, 55, 0.3)',
+              background: 'rgba(255, 255, 255, 0.6)',
               cursor: 'pointer',
               transition: 'all 0.3s'
             }}
-            onMouseEnter={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
-            onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(75, 85, 99, 0.5)'}>
+            onMouseEnter={(e) => e.currentTarget.style.borderColor = '#1C3D6F'}
+            onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(212, 217, 222, 0.8)'}>
               <input
                 type="file"
                 multiple
-                accept=".log,.txt,.csv,text/*"
+                accept=".log,.txt,.csv,.docx,.pdf,text/*"
                 onChange={(e) => setFiles(Array.from(e.target.files || []))}
                 style={{ display: 'none' }}
                 id="file-upload"
               />
               <label htmlFor="file-upload" style={{ cursor: 'pointer' }}>
                 <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📤</div>
-                <p style={{ color: '#d1d5db', marginBottom: '0.5rem' }}>Click to upload files or drag and drop</p>
-                <p style={{ fontSize: '0.875rem', color: '#9ca3af' }}>Supports: .txt, .log, .csv</p>
+                <p style={{ color: '#4E5D6C', marginBottom: '0.5rem' }}>Click to upload files or drag and drop</p>
+                <p style={{ fontSize: '0.875rem', color: '#4E5D6C', opacity: 0.8 }}>Supports: .txt, .log, .csv, .docx, .pdf</p>
               </label>
             </div>
             
@@ -255,8 +363,8 @@ export default function Home() {
                     alignItems: 'center',
                     gap: '0.5rem',
                     padding: '0.5rem 1rem',
-                    background: 'rgba(59, 130, 246, 0.1)',
-                    border: '1px solid rgba(59, 130, 246, 0.3)',
+                    background: 'rgba(28, 61, 111, 0.1)',
+                    border: '1px solid rgba(28, 61, 111, 0.3)',
                     borderRadius: '6px'
                   }}>
                     <span>📄</span>
@@ -266,7 +374,7 @@ export default function Home() {
                       style={{
                         background: 'transparent',
                         border: 'none',
-                        color: '#ef4444',
+                        color: '#dc2626',
                         cursor: 'pointer',
                         fontSize: '1.2rem'
                       }}
@@ -284,7 +392,7 @@ export default function Home() {
               disabled={loading}
               style={{
                 padding: '1rem 3rem',
-                background: loading ? '#4b5563' : 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
+                background: loading ? '#D4D9DE' : 'linear-gradient(135deg, #1C3D6F 0%, #3FB6A8 100%)',
                 color: 'white',
                 border: 'none',
                 borderRadius: '8px',
@@ -309,7 +417,7 @@ export default function Home() {
               background: 'rgba(239, 68, 68, 0.1)',
               border: '1px solid rgba(239, 68, 68, 0.3)',
               borderRadius: '8px',
-              color: '#f87171',
+              color: '#dc2626',
               textAlign: 'center'
             }}>
               ⚠️ {error}
@@ -319,7 +427,7 @@ export default function Home() {
 
         {/* Analysis Results */}
         {analysis && (
-          <div style={{ animation: 'fadeIn 0.5s ease' }}>
+          <div ref={analysisRef} style={{ animation: 'fadeIn 0.5s ease' }}>
             {/* Results Header */}
             <div style={{ 
               display: 'flex', 
@@ -327,31 +435,51 @@ export default function Home() {
               alignItems: 'center',
               marginBottom: '2rem',
               padding: '1.5rem',
-              background: 'rgba(17, 24, 48, 0.5)',
+              background: 'rgba(255, 255, 255, 0.9)',
               borderRadius: '12px',
-              border: '1px solid rgba(16, 185, 129, 0.3)'
+              border: '1px solid rgba(63, 182, 168, 0.4)',
+              boxShadow: '0 2px 8px rgba(28, 61, 111, 0.1)'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <div style={{ width: '12px', height: '12px', background: '#10b981', borderRadius: '50%', animation: 'pulse 2s infinite' }}></div>
-                <h3 style={{ fontSize: '1.5rem', fontWeight: '600', color: '#10b981' }}>Analysis Complete</h3>
+                <div style={{ width: '12px', height: '12px', background: '#3FB6A8', borderRadius: '50%', animation: 'pulse 2s infinite' }}></div>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: '600', color: '#1C3D6F' }}>Analysis Complete</h3>
               </div>
-              <button
-                onClick={downloadCSV}
-                style={{
-                  padding: '0.75rem 1.5rem',
-                  background: '#10b981',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = '#059669'}
-                onMouseLeave={(e) => e.currentTarget.style.background = '#10b981'}
-              >
-                📥 Download CSV
-              </button>
+              <div style={{ display: 'flex', gap: '1rem' }}>
+                <button
+                  onClick={downloadCSV}
+                  style={{
+                    padding: '0.75rem 1.5rem',
+                    background: '#3FB6A8',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#2d9b94'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = '#3FB6A8'}
+                >
+                  📥 CSV
+                </button>
+                <button
+                  onClick={downloadPDF}
+                  style={{
+                    padding: '0.75rem 1.5rem',
+                    background: '#1C3D6F',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#0f2a4a'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = '#1C3D6F'}
+                >
+                  📄 PDF
+                </button>
+              </div>
             </div>
 
             {/* Incident Overview Cards */}
@@ -436,17 +564,17 @@ export default function Home() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
                 {CSF_FUNCTIONS.map(func => (
                   <div key={func} style={{
-                    background: 'rgba(31, 41, 55, 0.5)',
+                    background: 'rgba(248, 249, 250, 0.8)',
                     borderRadius: '8px',
                     padding: '1rem',
-                    borderLeft: '3px solid #3b82f6'
+                    borderLeft: '3px solid #1C3D6F'
                   }}>
-                    <h4 style={{ fontSize: '1rem', fontWeight: '600', color: '#93c5fd', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <h4 style={{ fontSize: '1rem', fontWeight: '600', color: '#1C3D6F', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       {CSF_ICONS[func]} {func}
                     </h4>
                     <ul style={{ listStyle: 'none', padding: 0 }}>
                       {analysis.csf[func].map((item, i) => (
-                        <li key={i} style={{ fontSize: '0.875rem', color: '#d1d5db', marginBottom: '0.5rem', paddingLeft: '1rem', position: 'relative' }}>
+                        <li key={i} style={{ fontSize: '0.875rem', color: '#4E5D6C', marginBottom: '0.5rem', paddingLeft: '1rem', position: 'relative' }}>
                           <span style={{ position: 'absolute', left: 0 }}>•</span>
                           {item}
                         </li>
@@ -478,7 +606,7 @@ export default function Home() {
                         border: '1px solid rgba(59, 130, 246, 0.3)',
                         borderRadius: '4px',
                         fontSize: '0.875rem',
-                        color: '#93c5fd',
+                        color: '#1C3D6F',
                         fontFamily: 'monospace'
                       }}>
                         {control}
@@ -507,7 +635,7 @@ export default function Home() {
                         border: '1px solid rgba(239, 68, 68, 0.3)',
                         borderRadius: '4px',
                         fontSize: '0.875rem',
-                        color: '#fca5a5'
+                        color: '#dc2626'
                       }}>
                         {technique}
                       </span>
@@ -535,7 +663,7 @@ export default function Home() {
                   top: '0.5rem',
                   bottom: '0.5rem',
                   width: '2px',
-                  background: 'rgba(59, 130, 246, 0.3)'
+                  background: 'rgba(28, 61, 111, 0.3)'
                 }}></div>
                 {analysis.timeline.map((event, i) => (
                   <div key={i} style={{ position: 'relative', marginBottom: '1rem' }}>
@@ -544,20 +672,20 @@ export default function Home() {
                       left: '-1.5rem',
                       width: '10px',
                       height: '10px',
-                      background: '#3b82f6',
+                      background: '#1C3D6F',
                       borderRadius: '50%'
                     }}></div>
                     {event.time && (
                       <span style={{
                         fontSize: '0.875rem',
-                        color: '#60a5fa',
+                        color: '#1C3D6F',
                         fontWeight: '600',
                         marginRight: '0.75rem'
                       }}>
                         {event.time}
                       </span>
                     )}
-                    <span style={{ color: '#e5e7eb' }}>{event.event}</span>
+                    <span style={{ color: '#4E5D6C' }}>{event.event}</span>
                   </div>
                 ))}
               </div>
@@ -576,18 +704,18 @@ export default function Home() {
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(75, 85, 99, 0.3)' }}>
-                      <th style={{ padding: '0.75rem', textAlign: 'left', color: '#9ca3af', fontWeight: '600' }}>Action Item</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'left', color: '#9ca3af', fontWeight: '600' }}>Owner</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'left', color: '#9ca3af', fontWeight: '600' }}>Priority</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'left', color: '#9ca3af', fontWeight: '600' }}>Due Window</th>
+                    <tr style={{ borderBottom: '1px solid rgba(212, 217, 222, 0.5)' }}>
+                      <th style={{ padding: '0.75rem', textAlign: 'left', color: '#4E5D6C', fontWeight: '600', opacity: 0.8 }}>Action Item</th>
+                      <th style={{ padding: '0.75rem', textAlign: 'left', color: '#4E5D6C', fontWeight: '600', opacity: 0.8 }}>Owner</th>
+                      <th style={{ padding: '0.75rem', textAlign: 'left', color: '#4E5D6C', fontWeight: '600', opacity: 0.8 }}>Priority</th>
+                      <th style={{ padding: '0.75rem', textAlign: 'left', color: '#4E5D6C', fontWeight: '600', opacity: 0.8 }}>Due Window</th>
                     </tr>
                   </thead>
                   <tbody>
                     {analysis.actions.map((action, i) => (
-                      <tr key={i} style={{ borderBottom: '1px solid rgba(75, 85, 99, 0.2)' }}>
-                        <td style={{ padding: '0.75rem', color: '#e5e7eb' }}>{action.title}</td>
-                        <td style={{ padding: '0.75rem', color: '#d1d5db' }}>{action.owner || '-'}</td>
+                      <tr key={i} style={{ borderBottom: '1px solid rgba(212, 217, 222, 0.3)' }}>
+                        <td style={{ padding: '0.75rem', color: '#4E5D6C' }}>{action.title}</td>
+                        <td style={{ padding: '0.75rem', color: '#4E5D6C' }}>{action.owner || '-'}</td>
                         <td style={{ padding: '0.75rem' }}>
                           {action.priority && (
                             <span className={getPriorityColor(action.priority)} style={{
@@ -600,7 +728,7 @@ export default function Home() {
                             </span>
                           )}
                         </td>
-                        <td style={{ padding: '0.75rem', color: '#d1d5db' }}>{action.due_window || '-'}</td>
+                        <td style={{ padding: '0.75rem', color: '#4E5D6C' }}>{action.due_window || '-'}</td>
                       </tr>
                     ))}
                   </tbody>
