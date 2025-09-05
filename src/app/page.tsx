@@ -179,18 +179,31 @@ export default function Home() {
       // Create a clone of the analysis section for PDF generation
       const element = analysisRef.current;
       
-      // Add temporary CSS to prevent page breaks inside cards
+      // Add temporary CSS to prevent page breaks inside cards and improve PDF contrast
       const style = document.createElement('style');
       style.textContent = `
         .pdf-card { 
           page-break-inside: avoid !important; 
           break-inside: avoid !important;
           margin-bottom: 20px !important;
+          background: #FFFFFF !important;
+          border: 1px solid #D1D5DB !important;
         }
         .pdf-table { 
           page-break-inside: avoid !important; 
           break-inside: avoid !important;
         }
+        /* Ensure all text is dark for PDF */
+        * {
+          color: #000000 !important;
+        }
+        /* Keep specific colors for badges and status indicators */
+        .bg-red-500\\/20, .text-red-400 { color: #DC2626 !important; }
+        .bg-orange-500\\/20, .text-orange-400 { color: #EA580C !important; }
+        .bg-yellow-500\\/20, .text-yellow-400 { color: #D97706 !important; }
+        .bg-green-500\\/20, .text-green-400 { color: #16A34A !important; }
+        .bg-blue-500\\/20, .text-blue-400 { color: #2563EB !important; }
+        .bg-gray-500\\/20, .text-gray-400 { color: #6B7280 !important; }
       `;
       document.head.appendChild(style);
 
@@ -205,7 +218,7 @@ export default function Home() {
         scale: 2, // Higher resolution
         useCORS: true,
         allowTaint: true,
-        backgroundColor: '#F8F9FA',
+        backgroundColor: '#FFFFFF', // Pure white for better PDF contrast
         scrollX: 0,
         scrollY: 0,
       });
@@ -535,7 +548,7 @@ export default function Home() {
                 </div>
                 <div style={{ marginTop: '1rem' }}>
                   <p style={{ fontSize: '0.875rem', color: '#9ca3af', marginBottom: '0.5rem' }}>ROOT CAUSE</p>
-                  <p style={{ color: '#e5e7eb' }}>{analysis.root_cause}</p>
+                  <p style={{ color: '#1a202c' }}>{analysis.root_cause}</p>
                 </div>
               </div>
 
@@ -575,7 +588,7 @@ export default function Home() {
                 <h4 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#60a5fa', marginBottom: '1rem' }}>
                   👥 Executive Summary
                 </h4>
-                <p style={{ color: '#e5e7eb', lineHeight: '1.6' }}>{analysis.customer_safe_summary}</p>
+                <p style={{ color: '#1a202c', lineHeight: '1.6' }}>{analysis.customer_safe_summary}</p>
               </div>
             </div>
 
