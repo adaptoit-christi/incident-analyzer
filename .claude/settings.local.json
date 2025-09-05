@@ -6,7 +6,8 @@
       "Bash(npm run build:*)",
       "Bash(npx next:*)",
       "Bash(tasklist:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []

@@ -178,6 +178,29 @@ export default function Home() {
     try {
       // Create a clone of the analysis section for PDF generation
       const element = analysisRef.current;
+      
+      // Add temporary CSS to prevent page breaks inside cards
+      const style = document.createElement('style');
+      style.textContent = `
+        .pdf-card { 
+          page-break-inside: avoid !important; 
+          break-inside: avoid !important;
+          margin-bottom: 20px !important;
+        }
+        .pdf-table { 
+          page-break-inside: avoid !important; 
+          break-inside: avoid !important;
+        }
+      `;
+      document.head.appendChild(style);
+
+      // Add classes to cards for better PDF layout
+      const cards = element.querySelectorAll('[style*="borderRadius: \'12px\'"]');
+      cards.forEach(card => card.classList.add('pdf-card'));
+      
+      const tables = element.querySelectorAll('table');
+      tables.forEach(table => table.classList.add('pdf-table'));
+
       const canvas = await html2canvas(element, {
         scale: 2, // Higher resolution
         useCORS: true,
@@ -187,26 +210,32 @@ export default function Home() {
         scrollY: 0,
       });
 
+      // Clean up temporary styles and classes
+      document.head.removeChild(style);
+      cards.forEach(card => card.classList.remove('pdf-card'));
+      tables.forEach(table => table.classList.remove('pdf-table'));
+
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF('p', 'mm', 'a4');
       
-      // Calculate dimensions to fit the page
-      const imgWidth = 210; // A4 width in mm
-      const pageHeight = 295; // A4 height in mm
+      // Calculate dimensions with margins
+      const margin = 15; // 15mm margins
+      const imgWidth = 210 - (margin * 2); // A4 width minus margins
+      const pageHeight = 297 - (margin * 2); // A4 height minus margins  
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
       let heightLeft = imgHeight;
       
-      let position = 0;
+      let position = margin; // Start with top margin
 
-      // Add first page
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      // Add first page with margins
+      pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight);
       heightLeft -= pageHeight;
 
       // Add additional pages if needed
       while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
+        position = margin - (imgHeight - heightLeft); // Account for margins
         pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight);
         heightLeft -= pageHeight;
       }
 
@@ -486,7 +515,7 @@ export default function Home() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
               {/* Severity Card */}
               <div style={{
-                background: 'rgba(17, 24, 48, 0.5)',
+                background: 'rgba(255, 255, 255, 0.95)',
                 borderRadius: '12px',
                 padding: '1.5rem',
                 border: '1px solid rgba(59, 130, 246, 0.3)'
@@ -512,7 +541,7 @@ export default function Home() {
 
               {/* Impacted Assets Card */}
               <div style={{
-                background: 'rgba(17, 24, 48, 0.5)',
+                background: 'rgba(255, 255, 255, 0.95)',
                 borderRadius: '12px',
                 padding: '1.5rem',
                 border: '1px solid rgba(59, 130, 246, 0.3)'
@@ -538,7 +567,7 @@ export default function Home() {
 
               {/* Customer Summary Card */}
               <div style={{
-                background: 'rgba(17, 24, 48, 0.5)',
+                background: 'rgba(255, 255, 255, 0.95)',
                 borderRadius: '12px',
                 padding: '1.5rem',
                 border: '1px solid rgba(59, 130, 246, 0.3)'
@@ -552,7 +581,7 @@ export default function Home() {
 
             {/* NIST CSF Mapping */}
             <div style={{
-              background: 'rgba(17, 24, 48, 0.5)',
+              background: 'rgba(255, 255, 255, 0.95)',
               borderRadius: '12px',
               padding: '1.5rem',
               border: '1px solid rgba(59, 130, 246, 0.3)',
@@ -564,7 +593,7 @@ export default function Home() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
                 {CSF_FUNCTIONS.map(func => (
                   <div key={func} style={{
-                    background: 'rgba(248, 249, 250, 0.8)',
+                    background: 'rgba(255, 255, 255, 0.95)',
                     borderRadius: '8px',
                     padding: '1rem',
                     borderLeft: '3px solid #1C3D6F'
@@ -574,7 +603,7 @@ export default function Home() {
                     </h4>
                     <ul style={{ listStyle: 'none', padding: 0 }}>
                       {analysis.csf[func].map((item, i) => (
-                        <li key={i} style={{ fontSize: '0.875rem', color: '#4E5D6C', marginBottom: '0.5rem', paddingLeft: '1rem', position: 'relative' }}>
+                        <li key={i} style={{ fontSize: '0.875rem', color: '#1a202c', marginBottom: '0.5rem', paddingLeft: '1rem', position: 'relative' }}>
                           <span style={{ position: 'absolute', left: 0 }}>•</span>
                           {item}
                         </li>
@@ -590,7 +619,7 @@ export default function Home() {
               {/* NIST 800-53 Controls */}
               {analysis.nist_800_53 && analysis.nist_800_53.length > 0 && (
                 <div style={{
-                  background: 'rgba(17, 24, 48, 0.5)',
+                  background: 'rgba(255, 255, 255, 0.95)',
                   borderRadius: '12px',
                   padding: '1.5rem',
                   border: '1px solid rgba(59, 130, 246, 0.3)'
@@ -619,7 +648,7 @@ export default function Home() {
               {/* MITRE ATT&CK */}
               {analysis.mitre && analysis.mitre.length > 0 && (
                 <div style={{
-                  background: 'rgba(17, 24, 48, 0.5)',
+                  background: 'rgba(255, 255, 255, 0.95)',
                   borderRadius: '12px',
                   padding: '1.5rem',
                   border: '1px solid rgba(59, 130, 246, 0.3)'
@@ -647,7 +676,7 @@ export default function Home() {
 
             {/* Timeline */}
             <div style={{
-              background: 'rgba(17, 24, 48, 0.5)',
+              background: 'rgba(255, 255, 255, 0.95)',
               borderRadius: '12px',
               padding: '1.5rem',
               border: '1px solid rgba(59, 130, 246, 0.3)',
@@ -685,7 +714,7 @@ export default function Home() {
                         {event.time}
                       </span>
                     )}
-                    <span style={{ color: '#4E5D6C' }}>{event.event}</span>
+                    <span style={{ color: '#1a202c' }}>{event.event}</span>
                   </div>
                 ))}
               </div>
@@ -693,7 +722,7 @@ export default function Home() {
 
             {/* Action Items */}
             <div style={{
-              background: 'rgba(17, 24, 48, 0.5)',
+              background: 'rgba(255, 255, 255, 0.95)',
               borderRadius: '12px',
               padding: '1.5rem',
               border: '1px solid rgba(59, 130, 246, 0.3)'
@@ -714,8 +743,8 @@ export default function Home() {
                   <tbody>
                     {analysis.actions.map((action, i) => (
                       <tr key={i} style={{ borderBottom: '1px solid rgba(212, 217, 222, 0.3)' }}>
-                        <td style={{ padding: '0.75rem', color: '#4E5D6C' }}>{action.title}</td>
-                        <td style={{ padding: '0.75rem', color: '#4E5D6C' }}>{action.owner || '-'}</td>
+                        <td style={{ padding: '0.75rem', color: '#1a202c' }}>{action.title}</td>
+                        <td style={{ padding: '0.75rem', color: '#1a202c' }}>{action.owner || '-'}</td>
                         <td style={{ padding: '0.75rem' }}>
                           {action.priority && (
                             <span className={getPriorityColor(action.priority)} style={{
@@ -728,7 +757,7 @@ export default function Home() {
                             </span>
                           )}
                         </td>
-                        <td style={{ padding: '0.75rem', color: '#4E5D6C' }}>{action.due_window || '-'}</td>
+                        <td style={{ padding: '0.75rem', color: '#1a202c' }}>{action.due_window || '-'}</td>
                       </tr>
                     ))}
                   </tbody>
