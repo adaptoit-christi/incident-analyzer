@@ -49,6 +49,25 @@ export default function Home() {
   const [error, setError] = useState('');
   const analysisRef = useRef<HTMLDivElement>(null);
 
+  // Function to extract incident subject from ticket description
+  const extractIncidentSubject = (ticketText: string): string => {
+    const lines = ticketText.split('\n').filter(line => line.trim());
+    if (lines.length === 0) return "Security Incident";
+    
+    // Take the first line and clean it up as the subject
+    let subject = lines[0].trim();
+    
+    // Remove common prefixes
+    subject = subject.replace(/^(incident|issue|alert|problem|error|bug)[:\s-]*/i, '');
+    
+    // Limit length and add ellipsis if needed
+    if (subject.length > 60) {
+      subject = subject.substring(0, 57) + '...';
+    }
+    
+    return subject || "Security Incident";
+  };
+
   // Function to extract text from DOCX files
   const extractTextFromDocx = async (file: File): Promise<string> => {
     try {
@@ -182,6 +201,19 @@ export default function Home() {
       // Add temporary CSS to prevent page breaks inside cards and improve PDF contrast
       const style = document.createElement('style');
       style.textContent = `
+        /* Hide web-only elements in PDF */
+        .web-only { 
+          display: none !important; 
+        }
+        
+        /* Show PDF-only elements */
+        .pdf-header { 
+          display: block !important; 
+          page-break-after: avoid !important;
+          margin-bottom: 30px !important;
+        }
+        
+        /* Card styling for PDF */
         .pdf-card { 
           page-break-inside: avoid !important; 
           break-inside: avoid !important;
@@ -189,14 +221,31 @@ export default function Home() {
           background: #FFFFFF !important;
           border: 1px solid #D1D5DB !important;
         }
+        
+        /* Table styling */
         .pdf-table { 
           page-break-inside: avoid !important; 
           break-inside: avoid !important;
         }
+        
+        /* Force Remediation Actions to new page */
+        .remediation-actions { 
+          page-break-before: always !important;
+          margin-top: 40px !important;
+          background: #FFFFFF !important;
+          border: 1px solid #D1D5DB !important;
+        }
+        
         /* Ensure all text is dark for PDF */
         * {
           color: #000000 !important;
         }
+        
+        /* Header styling */
+        h1, h2, h3 { 
+          color: #1C3D6F !important; 
+        }
+        
         /* Keep specific colors for badges and status indicators */
         .bg-red-500\\/20, .text-red-400 { color: #DC2626 !important; }
         .bg-orange-500\\/20, .text-orange-400 { color: #EA580C !important; }
@@ -470,8 +519,26 @@ export default function Home() {
         {/* Analysis Results */}
         {analysis && (
           <div ref={analysisRef} style={{ animation: 'fadeIn 0.5s ease' }}>
-            {/* Results Header */}
-            <div style={{ 
+            {/* Professional Header for PDF */}
+            <div className="pdf-header" style={{ 
+              textAlign: 'center',
+              marginBottom: '2rem',
+              display: 'none' // Hidden in web view, shown in PDF via CSS
+            }}>
+              <h1 style={{ fontSize: '1.75rem', fontWeight: '700', color: '#1C3D6F', marginBottom: '0.5rem' }}>
+                Incident Report: {extractIncidentSubject(ticket)}
+              </h1>
+              <p style={{ color: '#4E5D6C', fontSize: '1rem' }}>
+                Generated on {new Date().toLocaleDateString('en-US', { 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                })}
+              </p>
+            </div>
+
+            {/* Results Header - Web Only */}
+            <div className="web-only" style={{ 
               display: 'flex', 
               justifyContent: 'space-between', 
               alignItems: 'center',
@@ -734,7 +801,7 @@ export default function Home() {
             </div>
 
             {/* Action Items */}
-            <div style={{
+            <div className="remediation-actions" style={{
               background: 'rgba(255, 255, 255, 0.95)',
               borderRadius: '12px',
               padding: '1.5rem',
